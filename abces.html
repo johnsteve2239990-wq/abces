@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="my">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Prompt Generator</title>
+<style>
+  :root{--bg:#0b0f17;--panel:#111827;--ink:#e5e7eb;--muted:#9ca3af;--brand:#60a5fa;--accent:#22d3ee}
+  *{box-sizing:border-box} 
+  body{margin:0;font-family:system-ui,Inter,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#0b0f17,#0f172a);color:var(--ink)}
+  .wrap{max-width:920px;margin:40px auto;padding:0 18px}
+  .card{background:rgba(17,24,39,.85);border:1px solid #1f2937;border-radius:16px;padding:20px;backdrop-filter:blur(6px)}
+  h1{margin:0 0 6px}.sub{color:var(--muted);margin:0 0 14px}
+  textarea,select,input{width:100%;border:1px solid #283244;background:#0b1220;color:#e5e7eb;border-radius:10px;padding:12px;font-size:15px}
+  textarea{min-height:120px;resize:vertical}
+  .btn{appearance:none;border:0;border-radius:10px;padding:12px 16px;background:linear-gradient(90deg,var(--brand),var(--accent));color:#001018;font-weight:700;cursor:pointer}
+  .ghost{background:transparent;border:1px solid #263245;color:#e5e7eb}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .output{white-space:pre-wrap;background:#0b1220;border:1px solid #263245;border-radius:10px;padding:12px;min-height:100px;margin-top:10px}
+  .hint{font-size:13px;color:#9ca3af}
+
+  /* Animated badges */
+  .badge{display:inline-block;padding:5px 12px;border-radius:999px;font-weight:600;font-size:14px;text-shadow:0 0 3px rgba(0,0,0,.6);animation:fadeIn .5s ease;}
+  .ok{background:linear-gradient(90deg,#16a34a,#22d3ee);color:#001014;}
+  .warn{background:linear-gradient(90deg,#f59e0b,#facc15);color:#1f1300;}
+  .bad{background:linear-gradient(90deg,#ef4444,#f87171,#f43f5e);color:#fff;
+       box-shadow:0 0 8px rgba(239,68,68,.7),0 0 15px rgba(244,63,94,.4);
+       animation:glowPulse 2s infinite ease-in-out;}
+  @keyframes glowPulse{0%{box-shadow:0 0 6px rgba(239,68,68,.7),0 0 12px rgba(244,63,94,.4);}
+                       50%{box-shadow:0 0 14px rgba(239,68,68,1),0 0 25px rgba(244,63,94,.7);}
+                       100%{box-shadow:0 0 6px rgba(239,68,68,.7),0 0 12px rgba(244,63,94,.4);}}
+  @keyframes fadeIn{from{opacity:0;transform:scale(.8);}to{opacity:1;transform:scale(1);}}
+
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal{width:min(480px,92vw);background:#0b1220;border:1px solid #283244;border-radius:14px;padding:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>AI Prompt Generator</h1>
+    <p class="sub">🔐 Google Sheet (Name, Key, Expire date)</p>
+
+    <!-- Session info -->
+    <div id="sessionInfo" class="row" style="margin-bottom:10px">
+      <span class="hint">Not signed in</span>
+    </div>
+
+    <label>မြန်မာလို အတိုချုံ့</label>
+    <textarea id="mmInput" placeholder="ဥပမာ - တောကြီးထဲမှာ လင်းလက်နေတဲ့ မြွေမ..."></textarea>
+
+    <div class="row" style="margin-top:10px">
+      <div style="flex:1;min-width:200px">
+        <label>🎨 Image Style</label>
+        <select id="imgStyle">
+          <option>Cartoon</option><option>Realistic</option><option>Anime</option><option>Cinematic</option>
+          <option>Fantasy</option><option>3D Render</option><option>Oil Painting</option><option>Sketch</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <label>⚙️ Quality</label>
+        <select id="quality">
+          <option>HD</option><option>4K</option><option>8K</option><option>Ultra realistic</option>
+          <option>Soft lighting</option><option>Vibrant colors</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button id="btnGenerate" class="btn">Generate Prompt</button>
+      <button id="btnCopy" class="ghost">Copy</button>
+      <span id="status" class="hint"></span>
+    </div>
+
+    <div id="out" class="output"></div>
+  </div>
+</div>
+
+<!-- Login Modal -->
+<div id="loginModal" class="modal-backdrop" role="dialog" aria-modal="true">
+  <div class="modal">
+    <h3>Enter Access Key</h3>
+    <input id="userKey" type="password" placeholder="KEY-xxxxxx..." />
+    <div class="row" style="margin-top:10px">
+      <label class="row" style="gap:6px"><input id="rememberKey" type="checkbox" /> Remember this key</label>
+      <div class="row" style="margin-left:auto">
+        <span id="loginMsg" class="hint"></span>
+        <button id="btnLoginGo" class="btn">Continue</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+const DATA_URL="https://docs.google.com/spreadsheets/d/1-Ax_ElTdq04Lf_F0d6cBtMbPenoNgKrdaDc_SjVEBo4/export?format=csv&gid=0";
+const GEMINI_KEY="AIzaSyAZEXZrsUbVdErTXO6_TWK7t2WI6f8SdTQ";
+
+const $=s=>document.querySelector(s);
+const toast=m=>{$("#status").textContent=m;setTimeout(()=>$("#status").textContent="",1500);};
+
+function parseCSV(t){const l=t.replace(/^\uFEFF/,"").trim().split(/\r?\n/);if(!l.length)return[];
+const h=l.shift().split(",").map(x=>x.trim().toLowerCase().replace(/\s+/g,"_"));
+return l.map(line=>{const c=line.split(",").map(x=>x.trim());const o={};h.forEach((hh,i)=>o[hh]=c[i]??"");return o;});}
+function parseDate(s){if(!s)return NaN;const t=Date.parse(s);if(!Number.isNaN(t))return t;
+const m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);if(m)return new Date(+m[3],+m[2]-1,+m[1]).getTime();return NaN;}
+async function loadSheet(){const r=await fetch(DATA_URL,{cache:"no-store"});if(!r.ok)throw new Error("load err");return parseCSV(await r.text());}
+async function validateKey(k){const rows=await loadSheet();const row=rows.find(x=>(x.key||"").trim()===k.trim());
+if(!row)return{ok:false,msg:"Key not found"};let exp=NaN;if(row.expire_date){exp=parseDate(row.expire_date);if(isFinite(exp)&&exp<Date.now())return{ok:false,msg:"Expired"};}
+return{ok:true,user:row,exp};}
+
+const LSK="pg_key";let sessionKey=null;
+const saveKey=k=>localStorage.setItem(LSK,k);const getKey=()=>localStorage.getItem(LSK)||null;
+
+const openLogin=()=>{$("#loginModal").style.display="flex";$("#userKey").focus();};
+const closeLogin=()=>{$("#loginModal").style.display="none";};
+
+$("#btnLoginGo").addEventListener("click",async()=>{
+  const k=$("#userKey").value.trim();if(!k){$("#loginMsg").textContent="Enter key";return;}
+  $("#loginMsg").textContent="Checking…";
+  try{const v=await validateKey(k);if(!v.ok){$("#loginMsg").textContent=v.msg;return;}
+    sessionKey=k;if($("#rememberKey").checked)saveKey(k);
+    updateInfo(v.exp);closeLogin();toast("Signed in");
+  }catch{ $("#loginMsg").textContent="Error"; }
+});
+
+function updateInfo(exp){
+  const el=$("#sessionInfo");if(!sessionKey){el.innerHTML="<span class='hint'>Not signed in</span>";return;}
+  let cls="ok",txt="";if(isFinite(exp)){const left=exp-Date.now(),d=Math.floor(left/86400000),h=Math.floor((left%86400000)/3600000);
+    if(left<=0){cls="bad";txt=`⛔ EXPIRED on ${new Date(exp).toLocaleDateString()}`;}
+    else if(d<3){cls="warn";txt=`⚠️ Expires ${new Date(exp).toLocaleDateString()} • ${d}d ${h}h left`;}
+    else{cls="ok";txt=`✅ Expires ${new Date(exp).toLocaleDateString()} • ${d}d ${h}h left`;}}
+  else txt="∞ No expiry";
+  el.innerHTML=`<span class='badge ${cls}'>${txt}</span>`;
+}
+
+(async()=>{const k=getKey();if(k){sessionKey=k;const v=await validateKey(k);if(v.ok){updateInfo(v.exp);return;}sessionKey=null;}openLogin();})();
+
+async function geminiExpand(txt,style,q){
+  const sys=`Expand the Burmese text into a beautiful English prompt.\nStyle:${style}, Quality:${q}`;
+  const body={contents:[{role:"user",parts:[{text:sys+"\n\n"+txt}]}]};
+  const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="+GEMINI_KEY,
+    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json();return j?.candidates?.[0]?.content?.parts?.[0]?.text||"(no result)";
+}
+
+$("#btnGenerate").addEventListener("click",async()=>{
+  const k=sessionKey||getKey();if(!k){openLogin();return;}
+  const v=await validateKey(k);if(!v.ok){sessionKey=null;openLogin();return;}
+  updateInfo(v.exp);
+  const mm=$("#mmInput").value.trim();if(!mm){toast("ဗမာစာရေးပါ");return;}
+  $("#status").textContent="Generating…";$("#out").textContent="";
+  try{const t=await geminiExpand(mm,$("#imgStyle").value,$("#quality").value);
+    $("#out").textContent=t.trim();toast("Done ✓");
+  }catch(e){$("#out").textContent="⚠️ Error";console.error(e);}
+});
+
+$("#btnCopy").addEventListener("click",async()=>{const t=$("#out").textContent.trim();if(!t)return;
+await navigator.clipboard.writeText(t);toast("Copied ✓");});
+</script>
+</body>
+</html>
